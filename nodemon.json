@@ -1,0 +1,5 @@
+{
+  "watch": ["src/", "public/"],
+  "ext": "js,json,css,html",
+  "ignore": ["public/manifest.json"]
+}

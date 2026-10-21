@@ -1,0 +1,3 @@
+Fix time prediction
+connect to iphone
+make hidden busses visible

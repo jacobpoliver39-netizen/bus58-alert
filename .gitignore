@@ -1,0 +1,13 @@
+node_modules/
+.env
+.DS_Store
+
+# Saved push subscriptions
+push-subscriptions.json
+# Logs and test output
+*.log
+coverage/
+
+# Local environment files
+.env.*
+!.env.example

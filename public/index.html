@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123b32">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Bus 58 Alert</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="app">
+    <header>
+      <p class="eyebrow">THESSALONIKI · OASTH</p>
+      <h1>Bus 58 Alert</h1>
+      <p class="subtitle">Know when it's time to leave.</p>
+    </header>
+
+    <section class="panel">
+      <p class="eyebrow">YOUR STOP</p>
+      <h2>ΕΚΚΛΗΣΙΑ</h2>
+      <p class="muted">Stop 1221 · Route 58 toward Panorama</p>
+
+
+
+      <button id="enableButton">Enable notifications</button>
+      <p id="permissionStatus" class="muted">Notifications are not enabled yet.</p>
+    </section>
+
+    <section class="panel">
+      <div class="status-heading">
+        <h2>Live bus status</h2>
+        <span id="connection" class="pill">Connecting…</span>
+      </div>
+      <p id="lastUpdated" class="muted">Waiting for live data…</p>
+      <div id="busList">
+        <p class="muted">Loading bus positions…</p>
+      </div>
+      <button id="refreshButton" class="secondary">Refresh now</button>
+    </section>
+
+    <footer>
+      <p>Arrival estimates are approximate and depend on OASTH GPS updates.</p>
+    </footer>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
