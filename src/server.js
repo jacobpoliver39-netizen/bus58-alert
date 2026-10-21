@@ -19,8 +19,10 @@ const tracker = new BusTracker(oasth, 30000, async (buses) => {
 });
 
 
-const subscriptionsFile = path.join(__dirname, "../push-subscriptions.json");
-
+const subscriptionsFile =
+  process.env.SUBSCRIPTIONS_FILE ||
+  path.join(__dirname, "../push-subscriptions.json");
+  
 app.use(express.json({ limit: "100kb" }));
 app.use(express.static(path.join(__dirname, "../public")));
 

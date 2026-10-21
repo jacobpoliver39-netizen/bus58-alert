@@ -2,10 +2,9 @@ const fs = require("fs");
 const path = require("path");
 const webpush = require("web-push");
 
-const subscriptionsFile = path.join(
-  __dirname,
-  "../push-subscriptions.json"
-);
+const subscriptionsFile =
+  process.env.SUBSCRIPTIONS_FILE ||
+  path.join(__dirname, "../push-subscriptions.json");
 
 class NotificationManager {
   constructor() {
