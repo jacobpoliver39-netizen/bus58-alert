@@ -5,13 +5,13 @@ const fs = require("fs");
 const path = require("path");
 const webpush = require("web-push");
 
-const { OasthClient } = require("./oasth");
+const { OsethClient } = require("./oseth");
 const { calculateBusDistances } = require("./eta");
 const { BusTracker } = require("./tracker");
 const { NotificationManager } = require("./notifications");
 const app = express();
 const PORT = process.env.PORT || 3000;
-const oasth = new OasthClient();
+const oasth = new OsethClient();
 const notificationManager = new NotificationManager();
 
 const tracker = new BusTracker(oasth, 30000, async (buses) => {

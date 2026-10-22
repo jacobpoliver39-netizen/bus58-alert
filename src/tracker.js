@@ -30,33 +30,52 @@ class BusTracker {
 
       const trackedBuses = distances.map((bus) => {
         const previous = this.history.get(bus.vehicleNumber);
-        let speedMps = null;
-        let etaMinutes = null;
-        let movingTowardStop = false;
 
         const validPosition =
           bus.distanceFromRouteMeters <= 80 &&
           !bus.hasPassedStop &&
           bus.distanceToStopMeters !== null;
 
-        if (previous && validPosition && previous.validPosition) {
-          const elapsedSeconds = (now - previous.observedAt) / 1000;
+        let observations = this.history.get(bus.vehicleNumber) ?? [];
+        let speedMps = null;
+        let etaMinutes = null;
+        let movingTowardStop = false;
+
+        if (validPosition) {
+          observations.push({
+            observedAt: now,
+            alongRouteMeters: bus.alongRouteMeters,
+          });
+
+          // Keep only the last 3 observations from the previous 90 seconds.
+          observations = observations.filter(
+            (observation) => now - observation.observedAt <= 90000
+          );
+          observations = observations.slice(-3);
+        } else {
+          observations = [];
+        }
+
+        if (validPosition && observations.length >= 2) {
+          const first = observations[0];
+          const last = observations[observations.length - 1];
+
+          const elapsedSeconds =
+            (last.observedAt - first.observedAt) / 1000;
           const progressMeters =
-            bus.alongRouteMeters - previous.alongRouteMeters;
+            last.alongRouteMeters - first.alongRouteMeters;
 
           if (
             elapsedSeconds >= 10 &&
-            elapsedSeconds <= 180 &&
+            elapsedSeconds <= 90 &&
             progressMeters >= 15
           ) {
             const measuredSpeed = progressMeters / elapsedSeconds;
 
-            // Confirm forward movement, even if an ETA is not yet reliable.
             if (measuredSpeed >= 0.5 && measuredSpeed <= 15) {
               movingTowardStop = true;
             }
 
-            // Use stricter limits for ETA estimates.
             if (measuredSpeed >= 1 && measuredSpeed <= 15) {
               speedMps = measuredSpeed;
             }
@@ -71,13 +90,7 @@ class BusTracker {
           etaMinutes = bus.distanceToStopMeters / speedMps / 60;
         }
 
-
-
-        this.history.set(bus.vehicleNumber, {
-          observedAt: now,
-          alongRouteMeters: bus.alongRouteMeters,
-          validPosition,
-        });
+        this.history.set(bus.vehicleNumber, observations);
 
         return {
           ...bus,

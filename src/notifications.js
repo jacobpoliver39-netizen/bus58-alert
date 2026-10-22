@@ -6,6 +6,10 @@ const subscriptionsFile =
   process.env.SUBSCRIPTIONS_FILE ||
   path.join(__dirname, "../push-subscriptions.json");
 
+const ALERT_ETA_MINUTES = Number(
+  process.env.ALERT_ETA_MINUTES || 16
+);
+
 class NotificationManager {
   constructor() {
     this.notifiedBuses = new Set();
@@ -40,21 +44,23 @@ class NotificationManager {
   }
 
   async checkBuses(buses) {
-
-
     for (const bus of buses) {
       const validPosition =
         bus.distanceFromRouteMeters <= 80 &&
         !bus.hasPassedStop &&
         bus.distanceToStopMeters !== null;
 
-      if (!validPosition) {
+      if (!validPosition || !bus.movingTowardStop) {
         continue;
       }
 
-
-
-      if (!bus.movingTowardStop) {
+      // Require a usable ETA within the alert window.
+      if (
+        bus.etaMinutes === null ||
+        !Number.isFinite(bus.etaMinutes) ||
+        bus.etaMinutes < 0 ||
+        bus.etaMinutes > ALERT_ETA_MINUTES
+      ) {
         continue;
       }
 
@@ -67,39 +73,29 @@ class NotificationManager {
 
       await this.sendToAll({
         title: "Bus 58 is approaching ΕΚΚΛΗΣΙΑ",
-        body: bus.etaMinutes !== null
-          ? `Bus ${bus.vehicleNumber} is about ${Math.round(bus.etaMinutes)} minutes away. Time to leave!`
-          : `Bus ${bus.vehicleNumber} is moving toward ΕΚΚΛΗΣΙΑ. Check the app for its status.`,
+        body: `Bus ${bus.vehicleNumber} is about ${Math.round(bus.etaMinutes)} minutes away. Time to leave!`,
         url: "/",
         tag: `bus58-${bus.vehicleNumber}`,
       });
 
       console.log(
-        `Sent approaching-bus alert for ${bus.vehicleNumber}, ${
-          bus.etaMinutes !== null
-            ? `ETA ${bus.etaMinutes} min`
-            : "ETA unavailable"
-        }`
+        `Sent approaching-bus alert for ${bus.vehicleNumber}, ETA ${bus.etaMinutes} min`
       );
     }
 
-    // Re-arm a bus only when it is explicitly observed past the stop
+    // Re-arm only when a bus is explicitly observed past the stop
     // or outside the valid route approach. Missing API results alone
     // are not enough to reset the alert.
     for (const bus of buses) {
-      const vehicleNumber = bus.vehicleNumber;
-
       const noLongerApproaching =
         bus.hasPassedStop ||
         bus.distanceFromRouteMeters > 80 ||
         bus.distanceToStopMeters === null;
 
       if (noLongerApproaching) {
-        this.notifiedBuses.delete(vehicleNumber);
+        this.notifiedBuses.delete(bus.vehicleNumber);
       }
     }
-
-
   }
 }
 
