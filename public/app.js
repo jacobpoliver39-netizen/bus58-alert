@@ -121,15 +121,19 @@ function renderStatus(result) {
   lastUpdated.textContent =
     `Server checked: ${new Date(data.observedAt).toLocaleTimeString()}`;
 
-  if (!data.buses.length) {
+  const approachingBuses = data.buses.filter(
+  (bus) => bus.hasPassedStop !== true
+  );
+
+  if (!approachingBuses.length) { 
     busList.innerHTML =
-      "<p class='muted'>No buses are currently reported on this route.</p>";
+      "<p class='muted'>No buses are approaching your stop right now.</p>";
     return;
   }
 
   busList.replaceChildren();
 
-  for (const bus of data.buses) {
+  for (const bus of approachingBuses) {
     const card = document.createElement("div");
     card.className = "bus";
 

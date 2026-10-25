@@ -47,11 +47,11 @@ class BusTracker {
             alongRouteMeters: bus.alongRouteMeters,
           });
 
-          // Keep only the last 3 observations from the previous 90 seconds.
+          // Keep up to 5 observations from the previous 150 seconds.
           observations = observations.filter(
-            (observation) => now - observation.observedAt <= 90000
+            (observation) => now - observation.observedAt <= 150000
           );
-          observations = observations.slice(-3);
+          observations = observations.slice(-5);
         } else {
           observations = [];
         }

@@ -194,3 +194,62 @@ test("raises ETA when the bus slows down", async (t) => {
     `Expected ETA to rise from ${beforeSlowdown.etaMinutes} to ${afterSlowdown.etaMinutes} minutes`
   );
 });
+
+test("handles a brief stop without crashing or producing an invalid ETA", async (t) => {
+  const tracker = makeTracker();
+
+  let currentTime = 1_800_000_300_000;
+  const originalNow = Date.now;
+  Date.now = () => currentTime;
+
+  t.after(() => {
+    Date.now = originalNow;
+  });
+
+  let longitude = 22.904;
+
+  tracker.oasth.getLiveSnapshot = async () => ({
+    fetchedAt: new Date(currentTime).toISOString(),
+    targetStop: {
+      StopID: "1221",
+      StopLat: 40.6,
+      StopLng: 22.908,
+    },
+    buses: [{
+      VEH_NO: "3004",
+      CS_LAT: 40.6,
+      CS_LNG: longitude,
+      CS_DATE: new Date(currentTime).toISOString(),
+    }],
+  });
+
+  await tracker.refresh();
+
+  currentTime += 30_000;
+  longitude = 22.9045;
+  await tracker.refresh();
+
+  currentTime += 30_000;
+  // The bus stops: its position does not change.
+  await tracker.refresh();
+
+  const [duringStop] = tracker.getStatus().data.buses;
+
+  assert.ok(
+    duringStop.etaMinutes === null ||
+      Number.isFinite(duringStop.etaMinutes),
+    "ETA should be null or a finite number during a stop"
+  );
+
+  currentTime += 30_000;
+  longitude = 22.905;
+  await tracker.refresh();
+
+  const [afterMoving] = tracker.getStatus().data.buses;
+
+  assert.ok(
+    afterMoving.etaMinutes === null ||
+      Number.isFinite(afterMoving.etaMinutes),
+    "ETA should remain valid after movement resumes"
+  );
+});
