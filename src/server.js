@@ -136,7 +136,8 @@ app.post("/api/push/subscribe", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   tracker.start();
-  console.log(`Bus 58 Alert running on http://localhost:${PORT}`);
+  console.log(`Bus 58 Alert running on port ${PORT}`);
 });
+
