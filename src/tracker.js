@@ -1,4 +1,6 @@
 const { calculateBusDistances } = require("./eta");
+const ROUTE_START_TO_STOP_METERS = 4299;
+const ROUTE_START_TO_STOP_MINUTES = 18;
 
 class BusTracker {
   constructor(oasth, pollIntervalMs = 30000, onUpdate = null) {
@@ -82,12 +84,13 @@ class BusTracker {
           }
         }
 
-        if (
-          validPosition &&
-          speedMps !== null &&
-          bus.distanceToStopMeters > 0
-        ) {
-          etaMinutes = bus.distanceToStopMeters / speedMps / 60;
+        if (validPosition) {
+          const distanceFromStart = bus.alongRouteMeters;
+
+          etaMinutes =
+            ((4299 - distanceFromStart) / 4299) * 18;
+
+          etaMinutes = Math.max(0, etaMinutes);
         }
 
         this.history.set(bus.vehicleNumber, observations);

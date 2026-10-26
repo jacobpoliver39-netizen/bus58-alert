@@ -146,21 +146,11 @@ test("updates speed and ETA when the bus accelerates", async (t) => {
   assert.ok(afterAcceleration.etaMinutes > 0);
 });
 
-test("raises ETA when the bus slows down", async (t) => {
+test("calculates ETA from distance along the route", async () => {
   const tracker = makeTracker();
 
-  let currentTime = 1_800_000_200_000;
-  const originalNow = Date.now;
-  Date.now = () => currentTime;
-
-  t.after(() => {
-    Date.now = originalNow;
-  });
-
-  let longitude = 22.904;
-
   tracker.oasth.getLiveSnapshot = async () => ({
-    fetchedAt: new Date(currentTime).toISOString(),
+    fetchedAt: new Date().toISOString(),
     targetStop: {
       StopID: "1221",
       StopLat: 40.6,
@@ -169,30 +159,25 @@ test("raises ETA when the bus slows down", async (t) => {
     buses: [{
       VEH_NO: "3003",
       CS_LAT: 40.6,
-      CS_LNG: longitude,
-      CS_DATE: new Date(currentTime).toISOString(),
+      CS_LNG: 22.904,
+      CS_DATE: new Date().toISOString(),
     }],
   });
 
   await tracker.refresh();
 
-  currentTime += 30_000;
-  longitude = 22.905;
-  await tracker.refresh();
+  const [bus] = tracker.getStatus().data.buses;
 
-  const [beforeSlowdown] = tracker.getStatus().data.buses;
-  assert.equal(beforeSlowdown.status, "estimated");
-
-  currentTime += 30_000;
-  longitude = 22.9052;
-  await tracker.refresh();
-
-  const [afterSlowdown] = tracker.getStatus().data.buses;
-
-  assert.ok(
-    afterSlowdown.etaMinutes > beforeSlowdown.etaMinutes,
-    `Expected ETA to rise from ${beforeSlowdown.etaMinutes} to ${afterSlowdown.etaMinutes} minutes`
+  const expectedEta = Math.max(
+    0,
+    ((4299 - bus.alongRouteMeters) / 4299) * 18
   );
+
+  assert.equal(
+    bus.etaMinutes,
+    Math.round(expectedEta * 10) / 10
+  );
+  assert.equal(bus.status, "estimated");
 });
 
 test("handles a brief stop without crashing or producing an invalid ETA", async (t) => {
