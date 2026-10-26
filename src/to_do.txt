@@ -1,3 +1,4 @@
-Fix time prediction
-connect to iphone
-make hidden busses visible
+Sunday 10/25:
+    Fix time prediction: don't calculate directly from speed, use the history of how long it takes from each stop... or just guess by distance
+    make sure notifications come early enough
+    make display sexier maybe

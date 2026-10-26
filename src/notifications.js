@@ -6,10 +6,6 @@ const subscriptionsFile =
   process.env.SUBSCRIPTIONS_FILE ||
   path.join(__dirname, "../push-subscriptions.json");
 
-const ALERT_ETA_MINUTES = Number(
-  process.env.ALERT_ETA_MINUTES || 16
-);
-
 class NotificationManager {
   constructor() {
     this.notifiedBuses = new Set();
@@ -46,25 +42,18 @@ class NotificationManager {
   async checkBuses(buses) {
     for (const bus of buses) {
       const validPosition =
+        Number.isFinite(bus.distanceFromRouteMeters) &&
         bus.distanceFromRouteMeters <= 80 &&
-        !bus.hasPassedStop &&
-        bus.distanceToStopMeters !== null;
+        bus.hasPassedStop !== true &&
+        Number.isFinite(bus.distanceToStopMeters) &&
+        bus.distanceToStopMeters >= 0;
 
-      if (!validPosition || !bus.movingTowardStop) {
+      if (!validPosition) {
         continue;
       }
 
-      // Require a usable ETA within the alert window.
-      if (
-        bus.etaMinutes === null ||
-        !Number.isFinite(bus.etaMinutes) ||
-        bus.etaMinutes < 0 ||
-        bus.etaMinutes > ALERT_ETA_MINUTES
-      ) {
-        continue;
-      }
-
-      // Notify only once during this observed approach.
+      // Notify on first valid detection; ETA and movement history
+      // are not required.
       if (this.notifiedBuses.has(bus.vehicleNumber)) {
         continue;
       }
@@ -72,14 +61,15 @@ class NotificationManager {
       this.notifiedBuses.add(bus.vehicleNumber);
 
       await this.sendToAll({
-        title: "Bus 58 is approaching ΕΚΚΛΗΣΙΑ",
-        body: `Bus ${bus.vehicleNumber} is about ${Math.round(bus.etaMinutes)} minutes away. Time to leave!`,
+        title: "Bus 58 detected near ΕΚΚΛΗΣΙΑ",
+        body: `Bus ${bus.vehicleNumber} has been detected ${bus.distanceToStopMeters} m before ΕΚΚΛΗΣΙΑ. Time to leave!`,
         url: "/",
         tag: `bus58-${bus.vehicleNumber}`,
       });
 
       console.log(
-        `Sent approaching-bus alert for ${bus.vehicleNumber}, ETA ${bus.etaMinutes} min`
+        `Sent detection alert for bus ${bus.vehicleNumber}, ` +
+        `${bus.distanceToStopMeters} m before ΕΚΚΛΗΣΙΑ`
       );
     }
 
@@ -88,8 +78,9 @@ class NotificationManager {
     // are not enough to reset the alert.
     for (const bus of buses) {
       const noLongerApproaching =
-        bus.hasPassedStop ||
-        bus.distanceFromRouteMeters > 80 ||
+        bus.hasPassedStop === true ||
+        (Number.isFinite(bus.distanceFromRouteMeters) &&
+          bus.distanceFromRouteMeters > 80) ||
         bus.distanceToStopMeters === null;
 
       if (noLongerApproaching) {

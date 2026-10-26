@@ -8,8 +8,8 @@ function makeBus(overrides = {}) {
     distanceFromRouteMeters: 10,
     hasPassedStop: false,
     distanceToStopMeters: 1500,
-    movingTowardStop: true,
-    etaMinutes: 3.5,
+    movingTowardStop: false,
+    etaMinutes: null,
     ...overrides,
   };
 }
@@ -25,56 +25,35 @@ function makeManager() {
   return { manager, sent };
 }
 
-test("alerts when a moving bus ETA is within four minutes", async () => {
+test("alerts immediately on first valid detection without an ETA", async () => {
   const { manager, sent } = makeManager();
 
   await manager.checkBuses([makeBus()]);
 
   assert.equal(sent.length, 1);
-  assert.match(sent[0].title, /approaching/);
+  assert.match(sent[0].title, /ΕΚΚΛΗΣΙΑ/);
   assert.match(sent[0].body, /3001/);
+  assert.match(sent[0].body, /1500 m/);
 });
 
-test("alerts at exactly sixteen minutes", async () => {
-  const { manager, sent } = makeManager();
+test("alerts even when ETA is invalid or outside the old alert window", async () => {
+  for (const etaMinutes of [16.1, Number.NaN, -1]) {
+    const { manager, sent } = makeManager();
 
-  await manager.checkBuses([makeBus({ etaMinutes: 16 })]);
+    await manager.checkBuses([makeBus({ etaMinutes })]);
 
-  assert.equal(sent.length, 1);
+    assert.equal(sent.length, 1);
+  }
 });
 
-test("does not alert when ETA is greater than sixteen minutes", async () => {
-  const { manager, sent } = makeManager();
-
-  await manager.checkBuses([makeBus({ etaMinutes: 16.1 })]);
-
-  assert.equal(sent.length, 0);
-});
-
-test("does not alert when ETA is unavailable", async () => {
-  const { manager, sent } = makeManager();
-
-  await manager.checkBuses([makeBus({ etaMinutes: null })]);
-
-  assert.equal(sent.length, 0);
-});
-
-test("does not alert when ETA is invalid", async () => {
-  const { manager, sent } = makeManager();
-
-  await manager.checkBuses([makeBus({ etaMinutes: Number.NaN })]);
-
-  assert.equal(sent.length, 0);
-});
-
-test("does not alert when the bus is not moving toward the stop", async () => {
+test("does not require movement history for the first alert", async () => {
   const { manager, sent } = makeManager();
 
   await manager.checkBuses([
-    makeBus({ movingTowardStop: false }),
+    makeBus({ movingTowardStop: false, etaMinutes: null }),
   ]);
 
-  assert.equal(sent.length, 0);
+  assert.equal(sent.length, 1);
 });
 
 test("does not repeatedly alert for the same approach", async () => {
@@ -107,7 +86,6 @@ test("re-arms after the bus is observed past the stop", async () => {
     makeBus({
       hasPassedStop: true,
       distanceToStopMeters: null,
-      movingTowardStop: false,
     }),
   ]);
 
@@ -126,3 +104,25 @@ test("does not alert when the bus is too far from its route", async () => {
   assert.equal(sent.length, 0);
 });
 
+test("does not alert when the bus has passed the stop", async () => {
+  const { manager, sent } = makeManager();
+
+  await manager.checkBuses([
+    makeBus({
+      hasPassedStop: true,
+      distanceToStopMeters: null,
+    }),
+  ]);
+
+  assert.equal(sent.length, 0);
+});
+
+test("does not alert when the remaining distance is invalid", async () => {
+  const { manager, sent } = makeManager();
+
+  await manager.checkBuses([
+    makeBus({ distanceToStopMeters: null }),
+  ]);
+
+  assert.equal(sent.length, 0);
+});
