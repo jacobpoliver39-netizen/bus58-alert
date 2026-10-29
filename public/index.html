@@ -29,6 +29,61 @@
       <p id="permissionStatus" class="muted">Notifications are not enabled yet.</p>
     </section>
 
+
+    <section class="panel" id="settingsPanel">
+      <p class="eyebrow">PREFERENCES</p>
+      <h2>Notification schedule</h2>
+      <p class="muted">Choose when Bus 58 alerts should reach you. Times are in Athens local time.</p>
+
+      <label class="setting-toggle" for="notificationsEnabled">
+        <input type="checkbox" id="notificationsEnabled" checked>
+        Enable bus alerts
+      </label>
+
+      <label class="setting-toggle" for="scheduleEnabled">
+        <input type="checkbox" id="scheduleEnabled" checked>
+        Limit alerts to a schedule
+      </label>
+
+      <div id="scheduleOptions">
+        <div class="time-grid">
+          <label for="startTime">
+            Start time
+            <input type="time" id="startTime" value="07:00" required>
+          </label>
+
+          <label for="endTime">
+            End time
+            <input type="time" id="endTime" value="09:00" required>
+          </label>
+        </div>
+
+        <p class="field-heading">Active days</p>
+        <div class="weekday-grid">
+          <label><input type="checkbox" name="weekday" value="1" checked> Mon</label>
+          <label><input type="checkbox" name="weekday" value="2" checked> Tue</label>
+          <label><input type="checkbox" name="weekday" value="3" checked> Wed</label>
+          <label><input type="checkbox" name="weekday" value="4" checked> Thu</label>
+          <label><input type="checkbox" name="weekday" value="5" checked> Fri</label>
+          <label><input type="checkbox" name="weekday" value="6"> Sat</label>
+          <label><input type="checkbox" name="weekday" value="0"> Sun</label>
+        </div>
+      </div>
+
+      <label for="settingsPin">
+        Settings PIN
+        <input type="password" id="settingsPin" inputmode="numeric"
+               autocomplete="current-password"
+               placeholder="Enter your Railway settings PIN">
+      </label>
+
+      <button id="saveSettingsButton" class="secondary">Save preferences</button>
+      <p id="settingsStatus" class="muted" role="status">
+        Loading notification preferences…
+      </p>
+    </section>
+
+
     <section class="panel">
       <div class="status-heading">
         <h2>Live bus status</h2>

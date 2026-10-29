@@ -15,7 +15,11 @@ function makeBus(overrides = {}) {
 }
 
 function makeManager() {
-  const manager = new NotificationManager();
+  const settings = {
+    isAllowedAt: () => true,
+  };
+
+  const manager = new NotificationManager(settings);
   const sent = [];
 
   manager.sendToAll = async (payload) => {

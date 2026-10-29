@@ -125,7 +125,7 @@ function renderStatus(result) {
   (bus) => bus.hasPassedStop !== true
   );
 
-  if (!approachingBuses.length) { 
+  if (!approachingBuses.length) {
     busList.innerHTML =
       "<p class='muted'>No buses are approaching your stop right now.</p>";
     return;
@@ -181,3 +181,133 @@ refreshButton.addEventListener("click", loadStatus);
 updatePermissionStatus();
 loadStatus();
 setInterval(loadStatus, 15000);
+
+
+const notificationsEnabledInput =
+  document.getElementById("notificationsEnabled");
+const scheduleEnabledInput =
+  document.getElementById("scheduleEnabled");
+const scheduleOptions = document.getElementById("scheduleOptions");
+const startTimeInput = document.getElementById("startTime");
+const endTimeInput = document.getElementById("endTime");
+const settingsPinInput = document.getElementById("settingsPin");
+const saveSettingsButton = document.getElementById("saveSettingsButton");
+const settingsStatus = document.getElementById("settingsStatus");
+
+function updateScheduleControls() {
+  const scheduleActive = scheduleEnabledInput.checked;
+  scheduleOptions.hidden = !scheduleActive;
+
+  for (const input of scheduleOptions.querySelectorAll("input")) {
+    input.disabled = !scheduleActive;
+  }
+}
+
+function displaySettings(settings) {
+  notificationsEnabledInput.checked = settings.notificationsEnabled;
+  scheduleEnabledInput.checked = settings.scheduleEnabled;
+  startTimeInput.value = settings.startTime;
+  endTimeInput.value = settings.endTime;
+
+  const activeDays = new Set(settings.weekdays.map(String));
+
+  document.querySelectorAll('input[name="weekday"]').forEach((input) => {
+    input.checked = activeDays.has(input.value);
+  });
+
+  updateScheduleControls();
+}
+
+async function loadNotificationSettings() {
+  try {
+    const response = await fetch("/api/notification-settings", {
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server returned HTTP ${response.status}`);
+    }
+
+    const settings = await response.json();
+    displaySettings(settings);
+
+    settingsStatus.textContent =
+      "Preferences loaded. Times use Europe/Athens.";
+  } catch (error) {
+    settingsStatus.textContent =
+      `Could not load preferences: ${error.message}`;
+  }
+}
+
+scheduleEnabledInput.addEventListener("change", updateScheduleControls);
+
+saveSettingsButton.addEventListener("click", async () => {
+  const pin = settingsPinInput.value.trim();
+
+  if (!pin) {
+    settingsStatus.textContent = "Enter your settings PIN before saving.";
+    settingsPinInput.focus();
+    return;
+  }
+
+  const weekdays = Array.from(
+    document.querySelectorAll('input[name="weekday"]:checked'),
+    (input) => Number(input.value)
+  );
+
+  if (
+    scheduleEnabledInput.checked &&
+    weekdays.length === 0
+  ) {
+    settingsStatus.textContent =
+      "Select at least one active day, or turn off the schedule.";
+    return;
+  }
+
+  if (
+    scheduleEnabledInput.checked &&
+    startTimeInput.value === endTimeInput.value
+  ) {
+    settingsStatus.textContent =
+      "Start and end times cannot be the same.";
+    return;
+  }
+
+  const settings = {
+    notificationsEnabled: notificationsEnabledInput.checked,
+    scheduleEnabled: scheduleEnabledInput.checked,
+    startTime: startTimeInput.value,
+    endTime: endTimeInput.value,
+    weekdays,
+  };
+
+  saveSettingsButton.disabled = true;
+  settingsStatus.textContent = "Saving preferences…";
+
+  try {
+    const response = await fetch("/api/notification-settings", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Settings-PIN": pin,
+      },
+      body: JSON.stringify(settings),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || `Server returned HTTP ${response.status}`);
+    }
+
+    displaySettings(result.settings);
+    settingsStatus.textContent = "Preferences saved successfully.";
+    settingsPinInput.value = "";
+  } catch (error) {
+    settingsStatus.textContent = `Could not save preferences: ${error.message}`;
+  } finally {
+    saveSettingsButton.disabled = false;
+  }
+});
+
+loadNotificationSettings();

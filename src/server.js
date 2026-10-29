@@ -9,10 +9,12 @@ const { OsethClient } = require("./oseth");
 const { calculateBusDistances } = require("./eta");
 const { BusTracker } = require("./tracker");
 const { NotificationManager } = require("./notifications");
+const { NotificationSettings } = require("./notification-settings");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const oasth = new OsethClient();
-const notificationManager = new NotificationManager();
+const notificationSettings = new NotificationSettings();
+const notificationManager = new NotificationManager(notificationSettings);
 
 const tracker = new BusTracker(oasth, 30000, async (buses) => {
   await notificationManager.checkBuses(buses);
@@ -84,6 +86,33 @@ app.get("/api/live", async (_req, res) => {
       error: "Could not retrieve live bus data",
       details: error.message,
     });
+  }
+});
+
+app.get("/api/notification-settings", (_req, res) => {
+  res.json(notificationSettings.get());
+});
+
+app.put("/api/notification-settings", (req, res) => {
+  const expectedPin = process.env.NOTIFICATION_SETTINGS_PIN;
+  const suppliedPin = req.get("X-Settings-PIN");
+
+  if (!expectedPin) {
+    return res.status(503).json({
+      error: "Settings updates are not configured yet.",
+    });
+  }
+
+  if (typeof suppliedPin !== "string" || suppliedPin !== expectedPin) {
+    return res.status(401).json({ error: "Incorrect settings PIN." });
+  }
+
+  try {
+    const settings = notificationSettings.update(req.body);
+    res.json({ success: true, settings });
+  } catch (error) {
+    console.error("Failed to update notification settings:", error.message);
+    res.status(500).json({ error: "Could not save notification settings." });
   }
 });
 

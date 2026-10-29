@@ -11,3 +11,6 @@ coverage/
 # Local environment files
 .env.*
 !.env.example
+
+# Local notification preferences
+notification-settings.json

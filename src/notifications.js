@@ -1,14 +1,16 @@
 const fs = require("fs");
 const path = require("path");
 const webpush = require("web-push");
+const { NotificationSettings } = require("./notification-settings");
 
 const subscriptionsFile =
   process.env.SUBSCRIPTIONS_FILE ||
   path.join(__dirname, "../push-subscriptions.json");
 
 class NotificationManager {
-  constructor() {
+  constructor(settings = new NotificationSettings()) {
     this.notifiedBuses = new Set();
+    this.settings = settings;
   }
 
   loadSubscriptions() {
@@ -52,8 +54,12 @@ class NotificationManager {
         continue;
       }
 
-      // Notify on first valid detection; ETA and movement history
-      // are not required.
+      // Do not consume the alert for this bus while notifications
+      // are disabled or outside the configured schedule.
+      if (!this.settings.isAllowedAt()) {
+        continue;
+      }
+
       if (this.notifiedBuses.has(bus.vehicleNumber)) {
         continue;
       }
@@ -68,14 +74,13 @@ class NotificationManager {
       });
 
       console.log(
-        `Sent detection alert for bus ${bus.vehicleNumber}, ` +
+        `Processed detection alert for bus ${bus.vehicleNumber}, ` +
         `${bus.distanceToStopMeters} m before ΕΚΚΛΗΣΙΑ`
       );
     }
 
     // Re-arm only when a bus is explicitly observed past the stop
-    // or outside the valid route approach. Missing API results alone
-    // are not enough to reset the alert.
+    // or outside the valid route approach.
     for (const bus of buses) {
       const noLongerApproaching =
         bus.hasPassedStop === true ||
