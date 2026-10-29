@@ -19,9 +19,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(ellipse at top, #ffe5c7 0, transparent 55%),
-    var(--cream);
+  background: #ffead5;
 }
 
 .app {
@@ -174,32 +172,34 @@ footer {
 }
 
 .time-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
   width: 100%;
+  min-width: 0;
 }
 
-.time-grid label,
-#settingsPanel > label:not(.setting-toggle) {
+.time-grid label {
+  flex: 1 1 0;
+  width: 0;
   min-width: 0;
   margin-top: 18px;
   font-weight: 600;
 }
 
-.time-grid input,
-#settingsPin {
+.time-grid input {
   display: block;
   width: 100%;
   min-width: 0;
   max-width: 100%;
   margin-top: 8px;
-  padding: 12px 10px;
+  padding: 10px 4px;
   border: 1px solid #e8c9ac;
   border-radius: 10px;
   background: #fffaf5;
   color: #35251b;
   font: inherit;
+  font-size: 16px;
 }
 
 .time-grid input:focus,
@@ -248,7 +248,7 @@ footer {
   }
 
   .time-grid {
-    gap: 14px;
+    gap: 12px;
   }
 
   .time-grid input {
