@@ -1,11 +1,11 @@
 {
-  "name": "Bus 58 Alert Thessaloniki",
-  "short_name": "Bus 58 Alert",
-  "description": "Live bus status and alerts for OASTH route 58.",
+  "name": "Jacob's 58-Mate",
+  "short_name": "58-Mate",
+  "description": "Live Route 58 bus tracking and alerts in Thessaloniki.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f2f4ef",
-  "theme_color": "#123b32",
+  "background_color": "#fff7ed",
+  "theme_color": "#c65d19",
   "icons": [
     {
       "src": "/icon-192.png",
