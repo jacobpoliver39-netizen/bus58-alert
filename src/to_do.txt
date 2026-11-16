@@ -1,4 +1,4 @@
-Sunday 10/25:
-    Fix time prediction: don't calculate directly from speed, use the history of how long it takes from each stop... or just guess by distance
-    make sure notifications come early enough
-    make display sexier maybe
+Monday 10/26:
+    
+    make display and notification icons sexier maybe
+    put my name on the apps

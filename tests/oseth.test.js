@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { OsethClient, parseLineString } = require("../src/oseth");
+const { OsethClient, DIRECTIONS, parseLineString } = require("../src/oseth");
 
 test("parses WKT coordinates into ordered route points", () => {
   assert.deepEqual(
@@ -25,53 +25,59 @@ test("rejects missing or malformed route geometry", () => {
   );
 });
 
-test("normalizes the exact target stop and route geometry", () => {
-  const client = new OsethClient();
-  const route = client.normalizeRoute({
-    shape: {
-      lineString: "LINESTRING (22.9 40.6,22.91 40.61)",
-    },
-    stops: [
-      {
-        id: "15037",
-        code: "15037",
-        name: "EKKLISIA",
-        latitude: 40.60066,
-        longitude: 22.99125,
-        sequence: 22,
-      },
-      {
-        id: "1221",
-        code: "1221",
-        name: "EKKLISIA",
-        latitude: 40.60853,
-        longitude: 22.96585,
-        sequence: 14,
-      },
-    ],
-  });
+test("each direction has its own route and shape", () => {
+  const outbound = new OsethClient("outbound");
+  const inbound = new OsethClient("inbound");
 
-  assert.equal(route.targetStop.StopID, "1221");
-  assert.equal(route.targetStop.StopLat, 40.60853);
-  assert.equal(route.targetStop.StopLng, 22.96585);
-  assert.equal(route.details.length, 2);
-  assert.equal(route.stops.length, 2);
+  assert.equal(outbound.routeId, DIRECTIONS.outbound.routeId);
+  assert.notEqual(outbound.routeId, inbound.routeId);
+  assert.notEqual(outbound.shapeId, inbound.shapeId);
+  assert.throws(() => new OsethClient("sideways"), /Unknown route direction/);
 });
 
-test("rejects a route missing the target stop", () => {
-  const client = new OsethClient();
+test("normalizes every stop on the route", () => {
+  const client = new OsethClient("outbound");
+  const stops = client.normalizeStops([
+    {
+      id: 15037,
+      name: "EKKLISIA",
+      latitude: "40.60066",
+      longitude: 22.99125,
+      sequence: 22,
+    },
+    { id: "1221", name: "EKKLISIA", latitude: 40.60853, longitude: 22.96585 },
+  ]);
 
+  assert.deepEqual(stops, [
+    {
+      id: "15037",
+      name: "EKKLISIA",
+      latitude: 40.60066,
+      longitude: 22.99125,
+      sequence: 22,
+    },
+    {
+      id: "1221",
+      name: "EKKLISIA",
+      latitude: 40.60853,
+      longitude: 22.96585,
+      sequence: 2,
+    },
+  ]);
+});
+
+test("rejects missing or invalid stops", () => {
+  const client = new OsethClient("inbound");
+
+  assert.throws(() => client.normalizeStops([]), /no stops/);
   assert.throws(
-    () => client.normalizeRoute({
-      shape: { lineString: "LINESTRING (22.9 40.6,22.91 40.61)" },
-      stops: [{ id: "15037", name: "EKKLISIA" }],
-    }),
-    /Target stop 1221 was not found/
+    () => client.normalizeStops([{ id: "1", latitude: 999, longitude: 22.9 }]),
+    /invalid stop record/
   );
 });
 
-test("normalizes live vehicle records for the existing ETA code", () => {
-  const client = new OsethClient();
+test("normalizes live vehicle records", () => {
+  const client = new OsethClient("outbound");
   const fetchedAt = "2026-10-22T10:00:00.000Z";
 
   assert.deepEqual(
@@ -95,7 +101,7 @@ test("normalizes live vehicle records for the existing ETA code", () => {
 });
 
 test("rejects invalid vehicle coordinates", () => {
-  const client = new OsethClient();
+  const client = new OsethClient("outbound");
 
   assert.throws(
     () => client.normalizeVehicles(

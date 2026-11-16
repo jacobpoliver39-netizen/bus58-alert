@@ -1,240 +1,159 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { BusTracker } = require("../src/tracker");
+const { BusTracker, METERS_PER_MINUTE } = require("../src/tracker");
 
-function makeTracker() {
-  const oasth = {
-    getLiveSnapshot: async () => ({
-      fetchedAt: new Date().toISOString(),
-      targetStop: {
-        StopID: "1221",
-        StopLat: 40.6,
-        StopLng: 22.908,
-      },
-      buses: [],
-    }),
-    getRouteData: async () => ({
-      details: [
-        { routed_y: 40.6, routed_x: 22.9, routed_order: 0 },
-        { routed_y: 40.6, routed_x: 22.91, routed_order: 1 },
-      ],
-    }),
+// A straight west-to-east line about 845 m long with three stops.
+function makeSnapshot(buses = []) {
+  return {
+    fetchedAt: new Date().toISOString(),
+    headsign: "TEST",
+    details: [
+      { routed_y: 40.6, routed_x: 22.9, routed_order: 0 },
+      { routed_y: 40.6, routed_x: 22.91, routed_order: 1 },
+    ],
+    stops: [
+      { id: "1", name: "Start", latitude: 40.6, longitude: 22.9, sequence: 1 },
+      { id: "2", name: "Middle", latitude: 40.6, longitude: 22.905, sequence: 2 },
+      { id: "3", name: "End", latitude: 40.6, longitude: 22.91, sequence: 3 },
+    ],
+    buses: buses.map(([id, lng, lat = 40.6]) => ({
+      VEH_NO: id,
+      CS_LAT: lat,
+      CS_LNG: lng,
+      CS_DATE: "now",
+    })),
   };
-
-  return new BusTracker(oasth);
 }
 
-test("tracker starts with no calculated data", () => {
-  const tracker = makeTracker();
-
-  assert.equal(tracker.getStatus().running, false);
-  assert.equal(tracker.getStatus().data, null);
-});
-
-test("refresh handles an empty live bus list", async () => {
-  const tracker = makeTracker();
-
-  await tracker.refresh();
-
-  const status = tracker.getStatus();
-  assert.equal(status.lastError, null);
-  assert.ok(status.data);
-  assert.deepEqual(status.data.buses, []);
-});
-
-test("refresh reports errors without crashing", async () => {
-  const tracker = makeTracker();
-  tracker.oasth.getLiveSnapshot = async () => {
-    throw new Error("test API failure");
-  };
-
-  await tracker.refresh();
-
-  assert.equal(tracker.getStatus().lastError, "test API failure");
-});
-
-test("calculates speed and ETA from successive bus observations", async (t) => {
-  const tracker = makeTracker();
-
-  let currentTime = 1_800_000_000_000;
-  const originalNow = Date.now;
-  Date.now = () => currentTime;
-
-  t.after(() => {
-    Date.now = originalNow;
-  });
-
-  let longitude = 22.904;
-
-  tracker.oasth.getLiveSnapshot = async () => ({
-    fetchedAt: new Date(currentTime).toISOString(),
-    targetStop: {
-      StopID: "1221",
-      StopLat: 40.6,
-      StopLng: 22.908,
-    },
-    buses: [{
-      VEH_NO: "3001",
-      CS_LAT: 40.6,
-      CS_LNG: longitude,
-      CS_DATE: new Date(currentTime).toISOString(),
-    }],
-  });
-
-  await tracker.refresh();
-
-  currentTime += 30_000;
-  longitude = 22.9045;
-  await tracker.refresh();
-
-  const [bus] = tracker.getStatus().data.buses;
-
-  assert.equal(bus.vehicleNumber, "3001");
-  assert.equal(bus.movingTowardStop, true);
-  assert.ok(bus.speedKmh > 1);
-  assert.ok(bus.etaMinutes > 0);
-  assert.equal(bus.status, "estimated");
-});
-
-test("updates speed and ETA when the bus accelerates", async (t) => {
-  const tracker = makeTracker();
-
-  let currentTime = 1_800_000_100_000;
-  const originalNow = Date.now;
-  Date.now = () => currentTime;
-
-  t.after(() => {
-    Date.now = originalNow;
-  });
-
-  let longitude = 22.904;
-
-  tracker.oasth.getLiveSnapshot = async () => ({
-    fetchedAt: new Date(currentTime).toISOString(),
-    targetStop: {
-      StopID: "1221",
-      StopLat: 40.6,
-      StopLng: 22.908,
-    },
-    buses: [{
-      VEH_NO: "3002",
-      CS_LAT: 40.6,
-      CS_LNG: longitude,
-      CS_DATE: new Date(currentTime).toISOString(),
-    }],
-  });
-
-  await tracker.refresh();
-
-  currentTime += 30_000;
-  longitude = 22.9045;
-  await tracker.refresh();
-
-  const [beforeAcceleration] = tracker.getStatus().data.buses;
-  assert.equal(beforeAcceleration.status, "estimated");
-
-  currentTime += 30_000;
-  longitude = 22.9055;
-  await tracker.refresh();
-
-  const [afterAcceleration] = tracker.getStatus().data.buses;
-
-  assert.ok(
-    afterAcceleration.speedKmh > beforeAcceleration.speedKmh,
-    `Expected speed to rise from ${beforeAcceleration.speedKmh} to ${afterAcceleration.speedKmh} km/h`
-  );
-  assert.ok(afterAcceleration.etaMinutes > 0);
-});
-
-test("calculates ETA from distance along the route", async () => {
-  const tracker = makeTracker();
-
-  tracker.oasth.getLiveSnapshot = async () => ({
-    fetchedAt: new Date().toISOString(),
-    targetStop: {
-      StopID: "1221",
-      StopLat: 40.6,
-      StopLng: 22.908,
-    },
-    buses: [{
-      VEH_NO: "3003",
-      CS_LAT: 40.6,
-      CS_LNG: 22.904,
-      CS_DATE: new Date().toISOString(),
-    }],
-  });
-
-  await tracker.refresh();
-
-  const [bus] = tracker.getStatus().data.buses;
-
-  const expectedEta = Math.max(
-    0,
-    ((4299 - bus.alongRouteMeters) / 4299) * 18
+function makeTracker(feeds, onUpdate = null) {
+  const clients = Object.fromEntries(
+    Object.entries(feeds).map(([direction, feed]) => [
+      direction,
+      { getLiveSnapshot: async () => feed() },
+    ])
   );
 
+  return new BusTracker(clients, 30000, onUpdate);
+}
+
+test("starts with no data", () => {
+  const tracker = makeTracker({ outbound: () => makeSnapshot() });
+
+  assert.equal(tracker.isRunning(), false);
+  assert.deepEqual(tracker.getRoutes(), []);
+  assert.equal(tracker.getStopStatus("outbound", "2"), null);
+});
+
+test("lists the stops of every direction after a refresh", async () => {
+  const tracker = makeTracker({
+    outbound: () => makeSnapshot(),
+    inbound: () => makeSnapshot(),
+  });
+
+  await tracker.refresh();
+
+  const routes = tracker.getRoutes();
+  assert.deepEqual(routes.map((route) => route.id), ["outbound", "inbound"]);
+  assert.deepEqual(routes[0].stops.map((stop) => stop.name), [
+    "Start",
+    "Middle",
+    "End",
+  ]);
+  assert.equal(tracker.hasStop("outbound", "2"), true);
+  assert.equal(tracker.hasStop("outbound", "99"), false);
+  assert.equal(tracker.getStopStatus("outbound", "99"), null);
+});
+
+test("reports distance and ETA relative to the requested stop", async () => {
+  const tracker = makeTracker({
+    outbound: () => makeSnapshot([["3001", 22.9025]]),
+  });
+
+  await tracker.refresh();
+
+  const middle = tracker.getStopStatus("outbound", "2");
+  const [bus] = middle.buses;
+
+  assert.equal(middle.stop.name, "Middle");
+  assert.equal(bus.approaching, true);
+  assert.equal(bus.hasPassedStop, false);
+  assert.ok(bus.distanceToStopMeters > 200 && bus.distanceToStopMeters < 220);
   assert.equal(
     bus.etaMinutes,
-    Math.round(expectedEta * 10) / 10
+    Math.round((bus.distanceToStopMeters / METERS_PER_MINUTE) * 10) / 10
   );
-  assert.equal(bus.status, "estimated");
+
+  // The same bus has already passed the first stop.
+  const [passed] = tracker.getStopStatus("outbound", "1").buses;
+  assert.equal(passed.hasPassedStop, true);
+  assert.equal(passed.approaching, false);
+  assert.equal(passed.distanceToStopMeters, null);
+  assert.equal(passed.etaMinutes, null);
+
+  // And is further from the last stop than from the middle one.
+  const [far] = tracker.getStopStatus("outbound", "3").buses;
+  assert.ok(far.etaMinutes > bus.etaMinutes);
 });
 
-test("handles a brief stop without crashing or producing an invalid ETA", async (t) => {
-  const tracker = makeTracker();
-
-  let currentTime = 1_800_000_300_000;
-  const originalNow = Date.now;
-  Date.now = () => currentTime;
-
-  t.after(() => {
-    Date.now = originalNow;
+test("a bus far from the route is not approaching", async () => {
+  const tracker = makeTracker({
+    outbound: () => makeSnapshot([["3001", 22.9025, 40.61]]),
   });
 
-  let longitude = 22.904;
+  await tracker.refresh();
 
-  tracker.oasth.getLiveSnapshot = async () => ({
-    fetchedAt: new Date(currentTime).toISOString(),
-    targetStop: {
-      StopID: "1221",
-      StopLat: 40.6,
-      StopLng: 22.908,
+  const [bus] = tracker.getStopStatus("outbound", "2").buses;
+  assert.equal(bus.approaching, false);
+  assert.equal(bus.etaMinutes, null);
+});
+
+test("measures speed from successive observations", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+
+  let lng = 22.9;
+  const tracker = makeTracker({
+    outbound: () => makeSnapshot([["3001", lng]]),
+  });
+
+  await tracker.refresh();
+  assert.equal(tracker.getStopStatus("outbound", "3").buses[0].speedKmh, null);
+
+  // About 211 m in 30 s is roughly 25 km/h.
+  t.mock.timers.tick(30000);
+  lng = 22.9025;
+  await tracker.refresh();
+
+  const speed = tracker.getStopStatus("outbound", "3").buses[0].speedKmh;
+  assert.ok(speed > 24 && speed < 27, `unexpected speed ${speed}`);
+});
+
+test("one direction failing does not hide the other", async () => {
+  let fail = false;
+  const tracker = makeTracker({
+    outbound: () => makeSnapshot([["3001", 22.9025]]),
+    inbound: () => {
+      if (fail) throw new Error("feed down");
+      return makeSnapshot();
     },
-    buses: [{
-      VEH_NO: "3004",
-      CS_LAT: 40.6,
-      CS_LNG: longitude,
-      CS_DATE: new Date(currentTime).toISOString(),
-    }],
   });
 
   await tracker.refresh();
-
-  currentTime += 30_000;
-  longitude = 22.9045;
+  fail = true;
   await tracker.refresh();
 
-  currentTime += 30_000;
-  // The bus stops: its position does not change.
-  await tracker.refresh();
+  assert.equal(tracker.getStopStatus("outbound", "2").lastError, null);
+  // The last good inbound data is kept, with the error reported.
+  assert.equal(tracker.getStopStatus("inbound", "2").lastError, "feed down");
+});
 
-  const [duringStop] = tracker.getStatus().data.buses;
-
-  assert.ok(
-    duringStop.etaMinutes === null ||
-      Number.isFinite(duringStop.etaMinutes),
-    "ETA should be null or a finite number during a stop"
+test("calls the update handler with the tracker after each refresh", async () => {
+  const seen = [];
+  const tracker = makeTracker(
+    { outbound: () => makeSnapshot() },
+    async (current) => seen.push(current)
   );
 
-  currentTime += 30_000;
-  longitude = 22.905;
   await tracker.refresh();
 
-  const [afterMoving] = tracker.getStatus().data.buses;
-
-  assert.ok(
-    afterMoving.etaMinutes === null ||
-      Number.isFinite(afterMoving.etaMinutes),
-    "ETA should remain valid after movement resumes"
-  );
+  assert.deepEqual(seen, [tracker]);
 });

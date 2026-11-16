@@ -1,88 +1,71 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { calculateBusDistances } = require("../src/eta");
+const {
+  buildRoute,
+  locateOnRoute,
+  locateStops,
+  locateBuses,
+} = require("../src/eta");
 
-const route = [
+// A straight west-to-east line about 845 m long.
+const straight = [
   { routed_y: 40.6, routed_x: 22.9, routed_order: 0 },
   { routed_y: 40.6, routed_x: 22.91, routed_order: 1 },
 ];
 
-const targetStop = {
-  StopID: "1221",
-  StopLat: 40.6,
-  StopLng: 22.908,
-};
+test("measures cumulative distance and orders points by routed_order", () => {
+  const route = buildRoute([...straight].reverse());
 
-function makeBus(longitude, vehicleNumber = "3001") {
-  return {
-    VEH_NO: vehicleNumber,
-    CS_LAT: 40.6,
-    CS_LNG: longitude,
-    CS_DATE: "2026-10-22T10:00:00.000Z",
-  };
-}
-
-test("calculates remaining route distance for a bus before the stop", () => {
-  const [bus] = calculateBusDistances(
-    [makeBus(22.904)],
-    route,
-    targetStop
-  );
-
-  assert.equal(bus.hasPassedStop, false);
-  assert.ok(bus.distanceToStopMeters > 0);
-  assert.ok(bus.distanceFromRouteMeters <= 1);
-  assert.ok(
-    Math.abs(
-      bus.distanceToStopMeters -
-      (bus.targetAlongRouteMeters - bus.alongRouteMeters)
-    ) <= 2
-  );
+  assert.equal(route.points[0].lng, 22.9);
+  assert.ok(route.cumulative[1] > 830 && route.cumulative[1] < 860);
 });
 
-test("marks a bus beyond the target stop as having passed it", () => {
-  const [bus] = calculateBusDistances(
-    [makeBus(22.909)],
-    route,
-    targetStop
-  );
-
-  assert.equal(bus.hasPassedStop, true);
-  assert.equal(bus.distanceToStopMeters, null);
+test("requires at least two route points", () => {
+  assert.throws(() => buildRoute([straight[0]]), /Not enough route geometry/);
+  assert.throws(() => buildRoute(null), /Not enough route geometry/);
 });
 
-test("returns no remaining distance when the bus is at the stop", () => {
-  const [bus] = calculateBusDistances(
-    [makeBus(22.908)],
-    route,
-    targetStop
-  );
+test("projects a point onto the route with its offset", () => {
+  const route = buildRoute(straight);
+  const location = locateOnRoute({ lat: 40.6005, lng: 22.905 }, route);
 
-  assert.equal(bus.hasPassedStop, false);
-  assert.ok(bus.distanceToStopMeters <= 2);
+  assert.ok(Math.abs(location.alongMeters - route.cumulative[1] / 2) < 2);
+  assert.ok(location.offsetMeters > 50 && location.offsetMeters < 60);
 });
 
-test("uses route order when the route doubles back near itself", () => {
-  const loopingRoute = [
+test("locates buses along the route", () => {
+  const route = buildRoute(straight);
+  const [bus] = locateBuses(
+    [{ VEH_NO: "3001", CS_LAT: 40.6, CS_LNG: 22.9025, CS_DATE: "now" }],
+    route
+  );
+
+  assert.equal(bus.vehicleNumber, "3001");
+  assert.equal(bus.distanceFromRouteMeters, 0);
+  assert.ok(Math.abs(bus.alongRouteMeters - route.cumulative[1] / 4) < 2);
+  assert.deepEqual(locateBuses(null, route), []);
+});
+
+test("keeps stops in sequence where the route doubles back on itself", () => {
+  // Out along a street and back along the same street.
+  const route = buildRoute([
     { routed_y: 40.6, routed_x: 22.9, routed_order: 0 },
     { routed_y: 40.6, routed_x: 22.91, routed_order: 1 },
-    { routed_y: 40.6001, routed_x: 22.91, routed_order: 2 },
-    { routed_y: 40.6001, routed_x: 22.9, routed_order: 3 },
-  ];
+    { routed_y: 40.6, routed_x: 22.9, routed_order: 2 },
+  ]);
+  const half = route.cumulative[1];
 
-  const loopingStop = {
-    StopID: "1221",
-    StopLat: 40.6001,
-    StopLng: 22.9,
-  };
-
-  const [bus] = calculateBusDistances(
-    [makeBus(22.905)],
-    loopingRoute,
-    loopingStop
+  const stops = locateStops(
+    [
+      { id: 3, name: "Back", latitude: 40.6, longitude: 22.9025, sequence: 3 },
+      { id: 1, name: "Out", latitude: 40.6, longitude: 22.9025, sequence: 1 },
+      { id: 2, name: "Turn", latitude: 40.6, longitude: 22.91, sequence: 2 },
+    ],
+    route
   );
 
-  assert.ok(bus.distanceFromRouteMeters <= 1);
-  assert.ok(bus.distanceToStopMeters > 0);
-  assert.equal(bus.hasPassedStop, false);
+  assert.deepEqual(stops.map((stop) => stop.id), ["1", "2", "3"]);
+  assert.ok(Math.abs(stops[0].alongMeters - half * 0.25) < 2);
+  assert.ok(Math.abs(stops[1].alongMeters - half) < 2);
+  assert.ok(Math.abs(stops[2].alongMeters - half * 1.75) < 2);
 });

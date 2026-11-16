@@ -202,8 +202,30 @@ footer {
   font-size: 16px;
 }
 
+select {
+  display: block;
+  width: 100%;
+  min-height: 46px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e8c9ac;
+  border-radius: 10px;
+  background: #fffaf5;
+  color: #35251b;
+  font: inherit;
+  font-size: 16px;
+}
+
+.panel > label:not(.setting-toggle) {
+  font-weight: 600;
+}
+
+#enableButton {
+  margin-top: 8px;
+}
+
 .time-grid input:focus,
-#settingsPin:focus {
+select:focus {
   outline: 2px solid #e9a36f;
   outline-offset: 2px;
 }

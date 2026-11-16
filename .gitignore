@@ -2,7 +2,10 @@ node_modules/
 .env
 .DS_Store
 
-# Saved push subscriptions
+# Saved devices (push subscription, stop and preferences per device)
+devices.json
+devices.json.tmp
+# Subscriptions file of the old single-stop version
 push-subscriptions.json
 # Logs and test output
 *.log

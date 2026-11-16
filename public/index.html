@@ -20,24 +20,45 @@
 
     <section class="panel">
       <p class="eyebrow">YOUR STOP</p>
-      <h2>ΕΚΚΛΗΣΙΑ</h2>
-      <p class="muted">Stop 1221 · Route 58 toward Panorama</p>
+      <h2 id="stopName">Choose your stop</h2>
+      <p id="stopSummary" class="muted">Pick the direction you travel in, then the stop you board at.</p>
 
+      <label for="directionSelect">
+        Direction
+        <select id="directionSelect" disabled></select>
+      </label>
 
-
-      <button id="enableButton">Enable notifications</button>
-      <p id="permissionStatus" class="muted">Notifications are not enabled yet.</p>
+      <label for="stopSelect">
+        Stop
+        <select id="stopSelect" disabled>
+          <option value="">Loading stops…</option>
+        </select>
+      </label>
     </section>
 
-
     <section class="panel" id="settingsPanel">
-      <p class="eyebrow">PREFERENCES</p>
-      <h2>Notification schedule</h2>
-      <p class="muted">Choose when Bus 58 alerts should reach you. Times are in Athens local time.</p>
+      <p class="eyebrow">ALERTS</p>
+      <h2>Notifications</h2>
+      <p class="muted">Get a notification on this device when a bus is on its way to your stop. Your stop and preferences apply only to this device.</p>
+
+      <button id="enableButton">Enable push notifications</button>
+      <p id="permissionStatus" class="muted" role="status">Notifications are not enabled yet.</p>
 
       <label class="setting-toggle" for="notificationsEnabled">
         <input type="checkbox" id="notificationsEnabled" checked>
         Enable bus alerts
+      </label>
+
+      <label for="leadMinutes">
+        Alert me when the bus is about
+        <select id="leadMinutes">
+          <option value="5">5 minutes away</option>
+          <option value="10" selected>10 minutes away</option>
+          <option value="15">15 minutes away</option>
+          <option value="20">20 minutes away</option>
+          <option value="30">30 minutes away</option>
+          <option value="45">45 minutes away</option>
+        </select>
       </label>
 
       <label class="setting-toggle" for="scheduleEnabled">
@@ -70,19 +91,9 @@
         </div>
       </div>
 
-      <label for="settingsPin">
-        Settings PIN
-        <input type="password" id="settingsPin" inputmode="numeric"
-               autocomplete="current-password"
-               placeholder="Enter your Railway settings PIN">
-      </label>
-
       <button id="saveSettingsButton" class="secondary">Save preferences</button>
-      <p id="settingsStatus" class="muted" role="status">
-        Loading notification preferences…
-      </p>
+      <p id="settingsStatus" class="muted" role="status">Times are in Athens local time.</p>
     </section>
-
 
     <section class="panel">
       <div class="status-heading">
@@ -97,7 +108,7 @@
     </section>
 
     <footer>
-      <p>Arrival estimates are approximate and depend on OASTH GPS updates.</p>
+      <p>Arrival estimates are approximate and depend on live GPS updates from the bus operator.</p>
     </footer>
   </main>
   <script src="/app.js"></script>

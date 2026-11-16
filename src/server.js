@@ -1,32 +1,16 @@
 require("dotenv").config();
 
 const express = require("express");
-const fs = require("fs");
 const path = require("path");
 const webpush = require("web-push");
 
-const { OsethClient } = require("./oseth");
-const { calculateBusDistances } = require("./eta");
+const { OsethClient, DIRECTIONS } = require("./oseth");
 const { BusTracker } = require("./tracker");
+const { DeviceStore } = require("./devices");
 const { NotificationManager } = require("./notifications");
-const { NotificationSettings } = require("./notification-settings");
+
 const app = express();
 const PORT = process.env.PORT || 3000;
-const oasth = new OsethClient();
-const notificationSettings = new NotificationSettings();
-const notificationManager = new NotificationManager(notificationSettings);
-
-const tracker = new BusTracker(oasth, 30000, async (buses) => {
-  await notificationManager.checkBuses(buses);
-});
-
-
-const subscriptionsFile =
-  process.env.SUBSCRIPTIONS_FILE ||
-  path.join(__dirname, "../push-subscriptions.json");
-  
-app.use(express.json({ limit: "100kb" }));
-app.use(express.static(path.join(__dirname, "../public")));
 
 const publicKey = process.env.VAPID_PUBLIC_KEY;
 const privateKey = process.env.VAPID_PRIVATE_KEY;
@@ -39,134 +23,143 @@ if (!publicKey || !privateKey || !vapidSubject) {
 
 webpush.setVapidDetails(vapidSubject, publicKey, privateKey);
 
-function readSubscriptions() {
-  try {
-    return JSON.parse(fs.readFileSync(subscriptionsFile, "utf8"));
-  } catch (error) {
-    if (error.code === "ENOENT") return [];
-    throw error;
-  }
-}
+const devices = new DeviceStore();
+const notificationManager = new NotificationManager(devices);
 
-function saveSubscriptions(subscriptions) {
-  fs.writeFileSync(
-    subscriptionsFile,
-    JSON.stringify(subscriptions, null, 2),
-    { mode: 0o600 }
-  );
-}
+const clients = Object.fromEntries(
+  Object.keys(DIRECTIONS).map((direction) => [
+    direction,
+    new OsethClient(direction),
+  ])
+);
+
+const tracker = new BusTracker(clients, 30000, async (current) => {
+  await notificationManager.checkAll(current);
+});
+
+app.use(express.json({ limit: "100kb" }));
+app.use(express.static(path.join(__dirname, "../public")));
 
 app.get("/health", (_req, res) => {
+  res.json({ status: "ok", app: "bus58-alert", route: "58" });
+});
+
+// Both directions of the route with their stops, for the stop picker.
+app.get("/api/routes", (_req, res) => {
+  const loaded = new Map(
+    tracker.getRoutes().map((route) => [route.id, route])
+  );
+
   res.json({
-    status: "ok",
-    app: "bus58-alert",
-    targetStop: 1221,
-    targetRoute: "58",
-    direction: "toward Anatolia College",
+    directions: Object.entries(DIRECTIONS).map(([id, config]) => ({
+      id,
+      label: config.label,
+      headsign: loaded.get(id)?.headsign ?? null,
+      stops: loaded.get(id)?.stops ?? [],
+    })),
   });
 });
 
-app.get("/api/status", (_req, res) => {
-  res.json(tracker.getStatus());
-});
+// Live buses relative to one stop: /api/status?direction=outbound&stop=1221
+app.get("/api/status", (req, res) => {
+  const direction = String(req.query.direction ?? "");
+  const stopId = String(req.query.stop ?? "");
 
-app.get("/api/live", async (_req, res) => {
-  try {
-    const snapshot = await oasth.getLiveSnapshot();
-    const busDistances = calculateBusDistances(
-      snapshot.buses,
-      (await oasth.getRouteData()).details,
-      snapshot.targetStop
+  if (!Object.hasOwn(DIRECTIONS, direction)) {
+    return res.status(400).json({ error: "Unknown direction." });
+  }
+
+  const status = tracker.getStopStatus(direction, stopId);
+
+  if (!status) {
+    const stillLoading = tracker.getRoutes().every(
+      (route) => route.id !== direction
     );
 
-    res.json({ ...snapshot, busDistances });
-  } catch (error) {
-    console.error("Failed to fetch OASTH data:", error.message);
-    res.status(502).json({
-      error: "Could not retrieve live bus data",
-      details: error.message,
-    });
-  }
-});
-
-app.get("/api/notification-settings", (_req, res) => {
-  res.json(notificationSettings.get());
-});
-
-app.put("/api/notification-settings", (req, res) => {
-  const expectedPin = process.env.NOTIFICATION_SETTINGS_PIN;
-  const suppliedPin = req.get("X-Settings-PIN");
-
-  if (!expectedPin) {
-    return res.status(503).json({
-      error: "Settings updates are not configured yet.",
+    return res.status(stillLoading ? 503 : 404).json({
+      error: stillLoading
+        ? tracker.errors[direction] || "Live bus data is not available yet."
+        : "That stop is not on this direction of the route.",
     });
   }
 
-  if (typeof suppliedPin !== "string" || suppliedPin !== expectedPin) {
-    return res.status(401).json({ error: "Incorrect settings PIN." });
-  }
-
-  try {
-    const settings = notificationSettings.update(req.body);
-    res.json({ success: true, settings });
-  } catch (error) {
-    console.error("Failed to update notification settings:", error.message);
-    res.status(500).json({ error: "Could not save notification settings." });
-  }
+  res.json(status);
 });
 
 app.get("/api/push/public-key", (_req, res) => {
   res.json({ publicKey });
 });
 
-app.post("/api/push/subscribe", async (req, res) => {
-  const subscription = req.body;
+// A device reads its own saved stop and preferences by presenting its
+// push endpoint, which only that device and this server know.
+app.post("/api/device/lookup", (req, res) => {
+  const device = devices.findByEndpoint(req.body?.endpoint);
+
+  if (!device) {
+    return res.status(404).json({ error: "This device is not registered." });
+  }
+
+  res.json({
+    direction: device.direction,
+    stopId: device.stopId,
+    settings: device.settings,
+  });
+});
+
+// Registers a device or updates its stop and preferences.
+app.put("/api/device", async (req, res) => {
+  const { subscription, direction, stopId, settings } = req.body ?? {};
 
   if (
-    !subscription ||
-    typeof subscription.endpoint !== "string" ||
-    !subscription.keys?.p256dh ||
-    !subscription.keys?.auth
+    tracker.getRoutes().some((route) => route.id === direction) &&
+    !tracker.hasStop(direction, stopId)
   ) {
-    return res.status(400).json({ error: "Invalid push subscription." });
+    return res.status(400).json({
+      error: "That stop is not on this direction of the route.",
+    });
   }
+
+  let result;
 
   try {
-    const subscriptions = readSubscriptions();
-    const updated = [
-      ...subscriptions.filter((item) => item.endpoint !== subscription.endpoint),
-      subscription,
-    ];
-
-    saveSubscriptions(updated);
-
-    try {
-      await webpush.sendNotification(
-        subscription,
-        JSON.stringify({
-          title: "Bus 58 Alert",
-          body: "Push notifications are connected successfully!",
-          url: "/",
-          tag: "bus58-setup",
-        })
-      );
-    } catch (error) {
-      console.error("Subscription saved, but test push failed:", error.message);
-      return res.status(502).json({
-        error: "Subscription saved, but the test notification could not be sent.",
-      });
+    result = devices.upsert({ subscription, direction, stopId, settings });
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return res.status(400).json({ error: error.message });
     }
 
-    res.json({ success: true });
-  } catch (error) {
-    console.error("Failed to save push subscription:", error.message);
-    res.status(500).json({ error: "Could not save the subscription." });
+    console.error("Failed to save device:", error.message);
+    return res.status(500).json({ error: "Could not save your preferences." });
   }
+
+  const { device, created } = result;
+
+  if (created) {
+    const delivered = await notificationManager.send(device, {
+      title: "58-Mate",
+      body: "Push notifications are connected successfully!",
+      url: "/",
+      tag: "bus58-setup",
+    });
+
+    if (!delivered) {
+      devices.remove(device.id);
+      return res.status(400).json({
+        error: "The push subscription was rejected. Try enabling again.",
+      });
+    }
+  }
+
+  res.json({
+    success: true,
+    created,
+    direction: device.direction,
+    stopId: device.stopId,
+    settings: device.settings,
+  });
 });
 
 app.listen(PORT, "0.0.0.0", () => {
   tracker.start();
   console.log(`Bus 58 Alert running on port ${PORT}`);
 });
-

@@ -1,17 +1,20 @@
-const { calculateBusDistances } = require("./eta");
-const ROUTE_START_TO_STOP_METERS = 4299;
-const ROUTE_START_TO_STOP_MINUTES = 18;
+const { buildRoute, locateStops, locateBuses } = require("./eta");
+
+// Average pace used for every ETA: measured as 4299 m of route in 18 minutes.
+const METERS_PER_MINUTE = 4299 / 18;
+const MAX_OFF_ROUTE_METERS = 80;
 
 class BusTracker {
-  constructor(oasth, pollIntervalMs = 30000, onUpdate = null) {
-    this.oasth = oasth;
+  // `clients` maps a direction name to an object with getLiveSnapshot().
+  constructor(clients, pollIntervalMs = 30000, onUpdate = null) {
+    this.clients = clients;
     this.onUpdate = onUpdate;
     this.pollIntervalMs = pollIntervalMs;
     this.history = new Map();
-    this.latest = null;
+    this.directions = {};
+    this.errors = {};
     this.timer = null;
     this.refreshing = false;
-    this.lastError = null;
   }
 
   async refresh() {
@@ -19,116 +22,134 @@ class BusTracker {
     this.refreshing = true;
 
     try {
-      const snapshot = await this.oasth.getLiveSnapshot();
-      const route = await this.oasth.getRouteData();
-
-      const distances = calculateBusDistances(
-        snapshot.buses,
-        route.details,
-        snapshot.targetStop
+      await Promise.all(
+        Object.entries(this.clients).map(async ([direction, client]) => {
+          try {
+            this.directions[direction] = this.track(
+              direction,
+              await client.getLiveSnapshot()
+            );
+            this.errors[direction] = null;
+          } catch (error) {
+            this.errors[direction] = error.message;
+            console.error(
+              `Bus tracker refresh failed (${direction}):`,
+              error.message
+            );
+          }
+        })
       );
 
-      const now = Date.now();
-
-      const trackedBuses = distances.map((bus) => {
-        const previous = this.history.get(bus.vehicleNumber);
-
-        const validPosition =
-          bus.distanceFromRouteMeters <= 80 &&
-          !bus.hasPassedStop &&
-          bus.distanceToStopMeters !== null;
-
-        let observations = this.history.get(bus.vehicleNumber) ?? [];
-        let speedMps = null;
-        let etaMinutes = null;
-        let movingTowardStop = false;
-
-        if (validPosition) {
-          observations.push({
-            observedAt: now,
-            alongRouteMeters: bus.alongRouteMeters,
-          });
-
-          // Keep up to 5 observations from the previous 150 seconds.
-          observations = observations.filter(
-            (observation) => now - observation.observedAt <= 150000
-          );
-          observations = observations.slice(-5);
-        } else {
-          observations = [];
-        }
-
-        if (validPosition && observations.length >= 2) {
-          const first = observations[0];
-          const last = observations[observations.length - 1];
-
-          const elapsedSeconds =
-            (last.observedAt - first.observedAt) / 1000;
-          const progressMeters =
-            last.alongRouteMeters - first.alongRouteMeters;
-
-          if (
-            elapsedSeconds >= 10 &&
-            elapsedSeconds <= 90 &&
-            progressMeters >= 15
-          ) {
-            const measuredSpeed = progressMeters / elapsedSeconds;
-
-            if (measuredSpeed >= 0.5 && measuredSpeed <= 15) {
-              movingTowardStop = true;
-            }
-
-            if (measuredSpeed >= 1 && measuredSpeed <= 15) {
-              speedMps = measuredSpeed;
-            }
-          }
-        }
-
-        if (validPosition) {
-          const distanceFromStart = bus.alongRouteMeters;
-
-          etaMinutes =
-            ((4299 - distanceFromStart) / 4299) * 18;
-
-          etaMinutes = Math.max(0, etaMinutes);
-        }
-
-        this.history.set(bus.vehicleNumber, observations);
-
-        return {
-          ...bus,
-          movingTowardStop,
-          speedKmh: speedMps === null
-            ? null
-            : Math.round(speedMps * 3.6 * 10) / 10,
-          etaMinutes: etaMinutes === null
-            ? null
-            : Math.round(etaMinutes * 10) / 10,
-          status: !validPosition
-            ? "not-approaching"
-            : etaMinutes === null
-              ? "collecting-data"
-              : "estimated",
-        };
-      });
-
-      this.latest = {
-        fetchedAt: snapshot.fetchedAt,
-        observedAt: new Date(now).toISOString(),
-        targetStop: snapshot.targetStop,
-        buses: trackedBuses,
-      };
-
-      this.lastError = null;
       if (this.onUpdate) {
-        await this.onUpdate(this.latest.buses);
+        await this.onUpdate(this);
       }
     } catch (error) {
-      this.lastError = error.message;
-      console.error("Bus tracker refresh failed:", error.message);
+      console.error("Bus tracker update handler failed:", error.message);
     } finally {
       this.refreshing = false;
     }
+  }
+
+  track(direction, snapshot) {
+    const route = buildRoute(snapshot.details);
+    const stops = locateStops(snapshot.stops, route);
+    const now = Date.now();
+
+    const buses = locateBuses(snapshot.buses, route).map((bus) => {
+      const key = `${direction}:${bus.vehicleNumber}`;
+      const onRoute = bus.distanceFromRouteMeters <= MAX_OFF_ROUTE_METERS;
+      let observations = [];
+
+      if (onRoute) {
+        // Keep up to 5 observations from the previous 150 seconds.
+        observations = [
+          ...(this.history.get(key) ?? []),
+          { observedAt: now, alongRouteMeters: bus.alongRouteMeters },
+        ]
+          .filter((item) => now - item.observedAt <= 150000)
+          .slice(-5);
+      }
+
+      this.history.set(key, observations);
+
+      return {
+        ...bus,
+        onRoute,
+        speedKmh: measureSpeedKmh(observations),
+      };
+    });
+
+    // Forget vehicles that are no longer in this direction's feed.
+    const present = new Set(
+      buses.map((bus) => `${direction}:${bus.vehicleNumber}`)
+    );
+    for (const key of this.history.keys()) {
+      if (key.startsWith(`${direction}:`) && !present.has(key)) {
+        this.history.delete(key);
+      }
+    }
+
+    return {
+      fetchedAt: snapshot.fetchedAt,
+      observedAt: new Date(now).toISOString(),
+      headsign: snapshot.headsign ?? null,
+      stops,
+      buses,
+    };
+  }
+
+  // Everything the app knows about one stop: the stop itself and each bus
+  // in that direction with its distance and ETA to that stop. Returns null
+  // when the direction has no data yet or the stop is not on it.
+  getStopStatus(direction, stopId) {
+    const data = this.directions[direction];
+    const stop = data?.stops.find((item) => item.id === String(stopId));
+
+    if (!stop) return null;
+
+    const buses = data.buses.map((bus) => {
+      const remaining = stop.alongMeters - bus.alongRouteMeters;
+      const hasPassedStop = remaining < 0;
+      const approaching = bus.onRoute && !hasPassedStop;
+
+      return {
+        vehicleNumber: bus.vehicleNumber,
+        distanceFromRouteMeters: bus.distanceFromRouteMeters,
+        distanceToStopMeters: hasPassedStop ? null : remaining,
+        hasPassedStop,
+        approaching,
+        speedKmh: bus.speedKmh,
+        etaMinutes: approaching
+          ? Math.round((remaining / METERS_PER_MINUTE) * 10) / 10
+          : null,
+      };
+    });
+
+    return {
+      direction,
+      stop: { id: stop.id, name: stop.name, sequence: stop.sequence },
+      fetchedAt: data.fetchedAt,
+      observedAt: data.observedAt,
+      lastError: this.errors[direction] ?? null,
+      buses,
+    };
+  }
+
+  hasStop(direction, stopId) {
+    const data = this.directions[direction];
+    return Boolean(data?.stops.some((stop) => stop.id === String(stopId)));
+  }
+
+  getRoutes() {
+    return Object.entries(this.directions).map(([direction, data]) => ({
+      id: direction,
+      headsign: data.headsign,
+      stops: data.stops.map(({ id, name, sequence }) => ({
+        id,
+        name,
+        sequence,
+      })),
+    }));
   }
 
   start() {
@@ -142,14 +163,28 @@ class BusTracker {
     );
   }
 
-  getStatus() {
-    return {
-      running: Boolean(this.timer),
-      pollIntervalSeconds: this.pollIntervalMs / 1000,
-      lastError: this.lastError,
-      data: this.latest,
-    };
+  isRunning() {
+    return Boolean(this.timer);
   }
 }
 
-module.exports = { BusTracker };
+// Speed is shown for information only; ETAs use the fixed average pace.
+function measureSpeedKmh(observations) {
+  if (observations.length < 2) return null;
+
+  const first = observations[0];
+  const last = observations[observations.length - 1];
+  const elapsedSeconds = (last.observedAt - first.observedAt) / 1000;
+  const progressMeters = last.alongRouteMeters - first.alongRouteMeters;
+
+  if (elapsedSeconds < 10 || elapsedSeconds > 150 || progressMeters < 15) {
+    return null;
+  }
+
+  const speedMps = progressMeters / elapsedSeconds;
+  if (speedMps < 1 || speedMps > 15) return null;
+
+  return Math.round(speedMps * 3.6 * 10) / 10;
+}
+
+module.exports = { BusTracker, METERS_PER_MINUTE };

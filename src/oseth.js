@@ -1,7 +1,30 @@
 const BASE_URL = "https://oseth.com.gr/en/telematics-api/route";
-const ROUTE_ID = "58_7448_2_3";
-const SHAPE_ID = "6365";
-const TARGET_STOP_ID = "1221";
+
+// The two directions of route 58. Stop IDs differ between directions,
+// so a stop is always identified by (direction, stopId).
+const DIRECTIONS = {
+  outbound: {
+    routeId: "58_7448_2_3",
+    shapeId: "6365",
+    label: "Toward Panorama / Chortiatis",
+  },
+  inbound: {
+    routeId: "58_7448_1_3",
+    shapeId: "6546",
+    label: "Toward Venizelou (city centre)",
+  },
+};
+
+function isValidCoordinate(lat, lng) {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  );
+}
 
 function parseLineString(lineString) {
   if (typeof lineString !== "string") {
@@ -17,15 +40,7 @@ function parseLineString(lineString) {
     const coordinates = pair.trim().split(/\s+/).map(Number);
     const [lng, lat] = coordinates;
 
-    if (
-      coordinates.length < 2 ||
-      !Number.isFinite(lat) ||
-      !Number.isFinite(lng) ||
-      lat < -90 ||
-      lat > 90 ||
-      lng < -180 ||
-      lng > 180
-    ) {
+    if (coordinates.length < 2 || !isValidCoordinate(lat, lng)) {
       throw new Error(`Invalid route coordinate at point ${index}`);
     }
 
@@ -44,13 +59,21 @@ function parseLineString(lineString) {
 }
 
 class OsethClient {
-  constructor() {
-    this.routeData = null;
+  constructor(direction) {
+    const config = DIRECTIONS[direction];
+
+    if (!config) {
+      throw new Error(`Unknown route direction: ${direction}`);
+    }
+
+    this.direction = direction;
+    this.routeId = config.routeId;
+    this.shapeId = config.shapeId;
   }
 
   async fetchRouteInfo() {
-    const url = new URL(`${BASE_URL}/${ROUTE_ID}/info`);
-    url.searchParams.set("shapeId", SHAPE_ID);
+    const url = new URL(`${BASE_URL}/${this.routeId}/info`);
+    url.searchParams.set("shapeId", this.shapeId);
     url.searchParams.set("language", "en");
 
     const response = await fetch(url, {
@@ -74,8 +97,8 @@ class OsethClient {
     }
 
     if (
-      result.data.id !== ROUTE_ID ||
-      String(result.data.shape?.id) !== SHAPE_ID
+      result.data.id !== this.routeId ||
+      String(result.data.shape?.id) !== this.shapeId
     ) {
       throw new Error("OSETH returned unexpected route or shape data");
     }
@@ -83,29 +106,31 @@ class OsethClient {
     return result.data;
   }
 
-  normalizeRoute(data) {
-    const stops = data.stops ?? [];
-    const target = stops.find(
-      (stop) => String(stop.id) === TARGET_STOP_ID
-    );
+  normalizeStops(stops) {
+    const normalized = (stops ?? []).map((stop, index) => {
+      const latitude = Number(stop.latitude);
+      const longitude = Number(stop.longitude);
 
-    if (!target) {
-      throw new Error(`Target stop ${TARGET_STOP_ID} was not found`);
+      if (stop.id == null || !isValidCoordinate(latitude, longitude)) {
+        throw new Error("OSETH returned an invalid stop record");
+      }
+
+      return {
+        id: String(stop.id),
+        name: String(stop.name ?? stop.id),
+        latitude,
+        longitude,
+        sequence: Number.isFinite(Number(stop.sequence))
+          ? Number(stop.sequence)
+          : index + 1,
+      };
+    });
+
+    if (normalized.length === 0) {
+      throw new Error("OSETH returned no stops for the route");
     }
 
-    const details = parseLineString(data.shape?.lineString);
-
-    return {
-      details,
-      stops,
-      targetStop: {
-        StopID: target.id,
-        StopCode: target.code,
-        StopName: target.name,
-        StopLat: target.latitude,
-        StopLng: target.longitude,
-      },
-    };
+    return normalized;
   }
 
   normalizeVehicles(vehicles, fetchedAt) {
@@ -113,15 +138,7 @@ class OsethClient {
       const lat = Number(vehicle.latitude);
       const lng = Number(vehicle.longitude);
 
-      if (
-        vehicle.id == null ||
-        !Number.isFinite(lat) ||
-        !Number.isFinite(lng) ||
-        lat < -90 ||
-        lat > 90 ||
-        lng < -180 ||
-        lng > 180
-      ) {
+      if (vehicle.id == null || !isValidCoordinate(lat, lng)) {
         throw new Error("OSETH returned an invalid vehicle record");
       }
 
@@ -137,28 +154,20 @@ class OsethClient {
     });
   }
 
+  // One request returns the route geometry, its stops and the live vehicles.
   async getLiveSnapshot() {
     const data = await this.fetchRouteInfo();
     const fetchedAt = new Date().toISOString();
 
-    this.routeData = this.normalizeRoute(data);
-
     return {
       fetchedAt,
-      routeCode: "58",
-      targetStop: this.routeData.targetStop,
+      direction: this.direction,
+      headsign: data.headsign ?? null,
+      details: parseLineString(data.shape?.lineString),
+      stops: this.normalizeStops(data.stops),
       buses: this.normalizeVehicles(data.vehicles, fetchedAt),
     };
   }
-
-  async getRouteData() {
-    if (!this.routeData) {
-      const data = await this.fetchRouteInfo();
-      this.routeData = this.normalizeRoute(data);
-    }
-
-    return this.routeData;
-  }
 }
 
-module.exports = { OsethClient, parseLineString };
+module.exports = { OsethClient, DIRECTIONS, parseLineString };

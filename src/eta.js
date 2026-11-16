@@ -43,37 +43,15 @@ function projectPoint(point, a, b) {
   };
 
   return {
-    point: projected,
     t,
     offsetMeters: distanceMeters(point, projected),
   };
 }
 
-function locateOnRoute(point, routePoints, cumulative) {
-  let best = null;
-
-  for (let i = 0; i < routePoints.length - 1; i++) {
-    const a = routePoints[i];
-    const b = routePoints[i + 1];
-    const projection = projectPoint(point, a, b);
-    const segmentLength = cumulative[i + 1] - cumulative[i];
-
-    const candidate = {
-      segmentIndex: i,
-      alongMeters: cumulative[i] + projection.t * segmentLength,
-      offsetMeters: projection.offsetMeters,
-    };
-
-    if (!best || candidate.offsetMeters < best.offsetMeters) {
-      best = candidate;
-    }
-  }
-
-  return best;
-}
-
-function calculateBusDistances(buses, routeDetails, targetStop) {
-  const routePoints = (routeDetails ?? [])
+// Turns the feed's route geometry into an ordered polyline with the
+// cumulative distance from the start of the route at every point.
+function buildRoute(routeDetails) {
+  const points = (routeDetails ?? [])
     .map((p) => ({
       lat: Number(p.routed_y),
       lng: Number(p.routed_x),
@@ -82,46 +60,94 @@ function calculateBusDistances(buses, routeDetails, targetStop) {
     .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
     .sort((a, b) => a.order - b.order);
 
-  if (routePoints.length < 2) {
+  if (points.length < 2) {
     throw new Error("Not enough route geometry to calculate distance");
   }
 
   const cumulative = [0];
 
-  for (let i = 1; i < routePoints.length; i++) {
+  for (let i = 1; i < points.length; i++) {
     cumulative[i] =
-      cumulative[i - 1] + distanceMeters(routePoints[i - 1], routePoints[i]);
+      cumulative[i - 1] + distanceMeters(points[i - 1], points[i]);
   }
 
-  const target = {
-    lat: Number(targetStop.StopLat),
-    lng: Number(targetStop.StopLng),
-  };
+  return { points, cumulative };
+}
 
-  const targetLocation = locateOnRoute(target, routePoints, cumulative);
+// Finds where a point sits on the route. `fromMeters` restricts the search
+// to the part of the route at or after that distance, which keeps stops in
+// order where the route runs along the same street twice.
+function locateOnRoute(point, route, fromMeters = 0) {
+  const { points, cumulative } = route;
+  let best = null;
 
+  for (let i = 0; i < points.length - 1; i++) {
+    if (cumulative[i + 1] < fromMeters) continue;
+
+    const segmentLength = cumulative[i + 1] - cumulative[i];
+    const end = points[i + 1];
+    let start = points[i];
+    let startMeters = cumulative[i];
+
+    // Only the part of this segment at or after fromMeters is eligible.
+    if (startMeters < fromMeters && segmentLength > 0) {
+      const skip = (fromMeters - startMeters) / segmentLength;
+      start = {
+        lat: start.lat + skip * (end.lat - start.lat),
+        lng: start.lng + skip * (end.lng - start.lng),
+      };
+      startMeters = fromMeters;
+    }
+
+    const projection = projectPoint(point, start, end);
+    const alongMeters =
+      startMeters + projection.t * (cumulative[i + 1] - startMeters);
+
+    if (!best || projection.offsetMeters < best.offsetMeters) {
+      best = { alongMeters, offsetMeters: projection.offsetMeters };
+    }
+  }
+
+  return best;
+}
+
+function locateStops(stops, route) {
+  let previousAlong = 0;
+
+  return [...(stops ?? [])]
+    .sort((a, b) => a.sequence - b.sequence)
+    .map((stop) => {
+      const location = locateOnRoute(
+        { lat: Number(stop.latitude), lng: Number(stop.longitude) },
+        route,
+        previousAlong
+      );
+
+      previousAlong = location.alongMeters;
+
+      return {
+        id: String(stop.id),
+        name: stop.name,
+        sequence: stop.sequence,
+        alongMeters: Math.round(location.alongMeters),
+      };
+    });
+}
+
+function locateBuses(buses, route) {
   return (buses ?? []).map((bus) => {
-    const location = {
-      lat: Number(bus.CS_LAT),
-      lng: Number(bus.CS_LNG),
-    };
-
-    const busLocation = locateOnRoute(location, routePoints, cumulative);
-    const remaining = targetLocation.alongMeters - busLocation.alongMeters;
+    const position = { lat: Number(bus.CS_LAT), lng: Number(bus.CS_LNG) };
+    const location = locateOnRoute(position, route);
 
     return {
       vehicleNumber: bus.VEH_NO,
       busTimestamp: bus.CS_DATE,
-      latitude: location.lat,
-      longitude: location.lng,
-      distanceFromRouteMeters: Math.round(busLocation.offsetMeters),
-      alongRouteMeters: Math.round(busLocation.alongMeters),
-      targetAlongRouteMeters: Math.round(targetLocation.alongMeters),
-      distanceToStopMeters:
-        remaining >= 0 ? Math.round(remaining) : null,
-      hasPassedStop: remaining < 0,
+      latitude: position.lat,
+      longitude: position.lng,
+      distanceFromRouteMeters: Math.round(location.offsetMeters),
+      alongRouteMeters: Math.round(location.alongMeters),
     };
   });
 }
 
-module.exports = { calculateBusDistances };
+module.exports = { buildRoute, locateOnRoute, locateStops, locateBuses };
