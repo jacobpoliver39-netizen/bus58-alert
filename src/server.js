@@ -4,7 +4,7 @@ const express = require("express");
 const path = require("path");
 const webpush = require("web-push");
 
-const { OsethClient, DIRECTIONS } = require("./oseth");
+const { OsethClient, DIRECTIONS, ROUTE_NAME } = require("./oseth");
 const { BusTracker } = require("./tracker");
 const { DeviceStore } = require("./devices");
 const { NotificationManager } = require("./notifications");
@@ -41,7 +41,7 @@ app.use(express.json({ limit: "100kb" }));
 app.use(express.static(path.join(__dirname, "../public")));
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", app: "bus58-alert", route: "58" });
+  res.json({ status: "ok", app: "bus58-alert", route: ROUTE_NAME });
 });
 
 // Both directions of the route with their stops, for the stop picker.
@@ -51,6 +51,7 @@ app.get("/api/routes", (_req, res) => {
   );
 
   res.json({
+    route: ROUTE_NAME,
     directions: Object.entries(DIRECTIONS).map(([id, config]) => ({
       id,
       label: config.label,
@@ -161,5 +162,5 @@ app.put("/api/device", async (req, res) => {
 
 app.listen(PORT, "0.0.0.0", () => {
   tracker.start();
-  console.log(`Bus 58 Alert running on port ${PORT}`);
+  console.log(`Bus ${ROUTE_NAME} alerts running on port ${PORT}`);
 });

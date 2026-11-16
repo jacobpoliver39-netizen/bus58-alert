@@ -1,19 +1,46 @@
 const BASE_URL = "https://oseth.com.gr/en/telematics-api/route";
 
-// The two directions of route 58. Stop IDs differ between directions,
+// Each route has two directions. Stop IDs differ between directions,
 // so a stop is always identified by (direction, stopId).
-const DIRECTIONS = {
-  outbound: {
-    routeId: "58_7448_2_3",
-    shapeId: "6365",
-    label: "Toward Panorama / Chortiatis",
+const ROUTES = {
+  "58": {
+    outbound: {
+      routeId: "58_7448_2_3",
+      shapeId: "6365",
+      label: "Toward Panorama / Chortiatis",
+    },
+    inbound: {
+      routeId: "58_7448_1_3",
+      shapeId: "6546",
+      label: "Toward Venizelou (city centre)",
+    },
   },
-  inbound: {
-    routeId: "58_7448_1_3",
-    shapeId: "6546",
-    label: "Toward Venizelou (city centre)",
+  // Night line, for trying the app out while the 58 is not running.
+  "01N": {
+    outbound: {
+      routeId: "01N_1107_1_3",
+      shapeId: "6686",
+      label: "Toward the Airport",
+    },
+    inbound: {
+      routeId: "01N_1107_2_3",
+      shapeId: "6490",
+      label: "Toward K.T.E.L. (bus station)",
+    },
   },
 };
+
+// The app serves route 58. Set BUS_ROUTE=01N to run it on the test route.
+const ROUTE_NAME = process.env.BUS_ROUTE || "58";
+
+if (!Object.hasOwn(ROUTES, ROUTE_NAME)) {
+  throw new Error(
+    `Unknown BUS_ROUTE "${ROUTE_NAME}". Use one of: ` +
+    Object.keys(ROUTES).join(", ")
+  );
+}
+
+const DIRECTIONS = ROUTES[ROUTE_NAME];
 
 function isValidCoordinate(lat, lng) {
   return (
@@ -170,4 +197,4 @@ class OsethClient {
   }
 }
 
-module.exports = { OsethClient, DIRECTIONS, parseLineString };
+module.exports = { OsethClient, DIRECTIONS, ROUTE_NAME, parseLineString };

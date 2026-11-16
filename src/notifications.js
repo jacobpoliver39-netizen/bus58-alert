@@ -1,5 +1,6 @@
 const webpush = require("web-push");
 const { isAllowedAt } = require("./notification-settings");
+const { ROUTE_NAME } = require("./oseth");
 
 // An alert that was sent is forgotten once its bus has not been seen
 // approaching for this long, so the vehicle's next trip alerts again even
@@ -85,7 +86,7 @@ class NotificationManager {
 
       const minutes = Math.max(1, Math.round(bus.etaMinutes));
       const delivered = await this.send(device, {
-        title: `Bus 58: about ${minutes} min to ${status.stop.name}`,
+        title: `Bus ${ROUTE_NAME}: about ${minutes} min to ${status.stop.name}`,
         body:
           `Bus ${bus.vehicleNumber} is ${bus.distanceToStopMeters} m ` +
           `from ${status.stop.name}. Time to leave!`,

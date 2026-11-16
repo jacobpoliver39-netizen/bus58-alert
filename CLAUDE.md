@@ -18,7 +18,7 @@ node --test --test-name-pattern="ETA"  # tests matching a name
 
 There is no linter or formatter configured.
 
-The server exits at startup unless `.env` defines `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. Optional: `PORT`, `DEVICES_FILE`. `SUBSCRIPTIONS_FILE` and `NOTIFICATION_SETTINGS_FILE` belong to the old single-stop version; they are now only read once for migration, and the directory of `SUBSCRIPTIONS_FILE` is where `devices.json` goes when `DEVICES_FILE` is unset.
+The server exits at startup unless `.env` defines `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. Optional: `PORT`, `DEVICES_FILE`, and `BUS_ROUTE` (default `58`; `01N` is a night line kept in `ROUTES` in `src/oseth.js` for testing when the 58 is not running). `SUBSCRIPTIONS_FILE` and `NOTIFICATION_SETTINGS_FILE` belong to the old single-stop version; they are now only read once for migration, and the directory of `SUBSCRIPTIONS_FILE` is where `devices.json` goes when `DEVICES_FILE` is unset.
 
 When running the server locally, point `DEVICES_FILE` and `SUBSCRIPTIONS_FILE` at a scratch directory. Otherwise real subscriptions in the repo root are loaded and real pushes can be sent.
 
@@ -38,7 +38,7 @@ OsethClient x2 ──▶ BusTracker ──▶ NotificationManager ──▶ web-
 
 `src/server.js` wires these together and owns the HTTP routes.
 
-- **Directions and stops.** `DIRECTIONS` in `src/oseth.js` holds the OSETH route and shape IDs for `outbound` (toward Panorama/Chortiatis) and `inbound` (toward Venizelou). Stop IDs differ between directions, so a stop is always the pair (direction, stopId). Nothing about any particular stop is hard-coded except the legacy migration.
+- **Directions and stops.** `ROUTES` in `src/oseth.js` holds the OSETH route and shape IDs for each direction (`outbound`, `inbound`) of each supported route; `DIRECTIONS` is the entry selected by `BUS_ROUTE`. Stop IDs differ between directions, so a stop is always the pair (direction, stopId). Nothing about any particular stop is hard-coded except the legacy migration.
 - **Data source.** One `OsethClient` per direction; a single request returns route geometry, stops and live vehicles. Vehicles and geometry are normalized into the old OASTH field shapes (`VEH_NO`, `CS_LAT`, `CS_LNG`, `routed_x`/`routed_y`/`routed_order`) that `eta.js` consumes. `src/oasth.js` is the previous data source and is not imported anywhere.
 - **Geometry.** `src/eta.js` projects stops and buses onto the route polyline to get metres from the route start. Stops are located in sequence order, each at or after the previous one, so they stay ordered where a route reuses a street.
 - **Tracking.** `BusTracker` stores, per direction, stop positions and bus positions. It is stop-agnostic; `getStopStatus(direction, stopId)` derives distance, `approaching` and ETA for one stop on demand. A failing direction keeps its last good data and reports the error. ETA is intentionally *not* derived from measured speed: it is distance divided by a fixed pace (`METERS_PER_MINUTE`, 4299 m in 18 min). Measured speed is display only.

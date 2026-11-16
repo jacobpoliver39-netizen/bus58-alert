@@ -17,3 +17,6 @@ coverage/
 
 # Local notification preferences
 notification-settings.json
+
+# Local data for `npm run dev:01n`
+.test-data/

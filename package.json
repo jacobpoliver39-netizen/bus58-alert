@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node --test",
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "dev:01n": "BUS_ROUTE=01N DEVICES_FILE=.test-data/devices.json SUBSCRIPTIONS_FILE=.test-data/push-subscriptions.json nodemon src/server.js"
   },
   "keywords": [],
   "author": "",

@@ -37,6 +37,7 @@ let prefs = {
   settings: { ...DEFAULT_SETTINGS },
 };
 let directions = [];
+let routeName = "58";
 let subscription = null;
 
 function readLocalPrefs() {
@@ -126,7 +127,7 @@ function renderStopPicker() {
   if (stop) {
     stopName.textContent = stop.name;
     stopSummary.textContent =
-      `Stop ${stop.id} · Route 58 ${currentDirection().label.toLowerCase()}`;
+      `Stop ${stop.id} · Route ${routeName} · ${currentDirection().label}`;
   } else {
     stopName.textContent = "Choose your stop";
     stopSummary.textContent =
@@ -139,7 +140,9 @@ async function loadRoutes() {
     const response = await fetch("/api/routes", { cache: "no-store" });
     if (!response.ok) throw new Error(`Server returned HTTP ${response.status}`);
 
-    directions = (await response.json()).directions;
+    const routes = await response.json();
+    routeName = routes.route;
+    directions = routes.directions;
 
     if (!currentDirection() && directions.length) {
       prefs.direction = directions[0].id;
